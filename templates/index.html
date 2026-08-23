@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maps Phone Extractor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: auto;
+            background-color: #f4f7f6;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+        .search-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 6px;
+            background-color: #007bff;
+            color: white;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .copy-btn {
+            background-color: #28a745;
+            width: 100%;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .copy-btn:hover {
+            background-color: #218838;
+        }
+        #results {
+            background: #ffffff;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 15px;
+            min-height: 100px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Location Phone Extractor</h2>
+
+    <!-- Top Search Input -->
+    <div class="search-container">
+        <input type="text" id="query" placeholder="Search (e.g. PG in Kolkata, Buy Property in Powai)">
+        <button onclick="searchData()">Search</button>
+    </div>
+
+    <!-- Top Copy Button -->
+    <button class="copy-btn" id="copyBtn" onclick="copyAllData()">Copy All Results</button>
+
+    <!-- Results Box -->
+    <div id="results">Search results will appear here...</div>
+
+    <script>
+        async function searchData() {
+            const query = document.getElementById('query').value;
+            const resultsDiv = document.getElementById('results');
+            const copyBtn = document.getElementById('copyBtn');
+
+            if (!query) {
+                alert("Please enter a location or query!");
+                return;
+            }
+
+            resultsDiv.innerHTML = "Fetching phone numbers... Please wait a few seconds.";
+            copyBtn.style.display = "none";
+
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `query=${encodeURIComponent(query)}`
+                });
+
+                const data = await response.json();
+
+                if (!data || data.length === 0) {
+                    resultsDiv.innerHTML = "No results found.";
+                    return;
+                }
+
+                let formattedText = "";
+                data.forEach((item, index) => {
+                    formattedText += `${index + 1}. Name: ${item.name}\n   Phone: ${item.phone}\n\n`;
+                });
+
+                resultsDiv.innerHTML = formattedText;
+                copyBtn.style.display = "block";
+            } catch (error) {
+                resultsDiv.innerHTML = "Error loading data. Please check your API key or connection.";
+            }
+        }
+
+        function copyAllData() {
+            const text = document.getElementById('results').innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                alert("All data copied to clipboard!");
+            }).catch(err => {
+                alert("Copy failed: " + err);
+            });
+        }
+    </script>
+</body>
+</html>
