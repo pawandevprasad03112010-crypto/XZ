@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Direct Link Generator</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 400px; margin: auto; }
+        label { font-weight: bold; display: block; margin-top: 10px; }
+        input, textarea, button { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; }
+        button { background-color: #25D366; color: white; border: none; cursor: pointer; font-size: 16px; font-weight: bold; border-radius: 5px; margin-top: 15px; }
+        button:hover { background-color: #1EBE57; }
+    </style>
+</head>
+<body>
+
+    <h2>WhatsApp Link Launcher</h2>
+
+    <label for="phone">Phone Number (Country code ke saath, bina + ke):</label>
+    <input type="text" id="phone" placeholder="Jaise: 919876543210">
+
+    <label for="message">Message:</label>
+    <textarea id="message" rows="4" placeholder="Apna message yahan likhein..."></textarea>
+
+    <button onclick="sendWhatsApp()">WhatsApp Par Bhejein</button>
+
+    <script>
+        function sendWhatsApp() {
+            let phone = document.getElementById("phone").value.trim();
+            let message = encodeURIComponent(document.getElementById("message").value.trim());
+
+            if (!phone) {
+                alert("Kripya phone number darj karein.");
+                return;
+            }
+
+            // WhatsApp Web / App link URL
+            let url = `https://wa.me/${phone}?text=${message}`;
+            
+            // New tab mein WhatsApp open hoga
+            window.open(url, '_blank');
+        }
+    </script>
+
+</body>
+</html>
