@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Smart Crop & Batch Watermark Tool</title>
-  <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0"></script>
+  <title>Batch Watermark & Auto-Crop Tool</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -32,15 +31,6 @@
       border-radius: 6px;
     }
     input[type="range"] { width: 100%; cursor: pointer; }
-    .status-box {
-      background: #e0f2fe;
-      color: #0369a1;
-      padding: 10px;
-      border-radius: 6px;
-      font-size: 14px;
-      margin-bottom: 15px;
-      display: none;
-    }
     .btn-group { display: flex; gap: 10px; margin-top: 15px; }
     .btn {
       flex: 1;
@@ -92,15 +82,13 @@
 </head>
 <body>
 
-  <h2>AI Auto-Crop & Watermark Tool</h2>
+  <h2>Auto-Crop & Watermark Tool</h2>
 
   <div class="controls">
     <div class="control-group">
       <label>1. Select Photos:</label>
       <input type="file" id="imageInput" multiple accept="image/*">
     </div>
-
-    <div id="statusBox" class="status-box">Processing images with AI... Please wait.</div>
 
     <div class="control-group">
       <label>2. Watermark Text:</label>
@@ -125,82 +113,92 @@
 
   <div id="gallery"></div>
 
-  <script type="module">
-    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0';
-
-    env.allowLocalModels = false;
-    let detector = null;
-
+  <script>
     const imageInput = document.getElementById('imageInput');
-    const statusBox = document.getElementById('statusBox');
     const wmText = document.getElementById('wmText');
     const wmSize = document.getElementById('wmSize');
     const wmOpacity = document.getElementById('wmOpacity');
     const applyBtn = document.getElementById('applyBtn');
     const downloadBtn = document.getElementById('downloadBtn');
     const gallery = document.getElementById('gallery');
-        let processedCanvases = [];
+
+    let processedCanvases = [];
     let wmPositions = [];
 
-    // AI ऑब्जेक्ट डिटेक्ट मॉडल लोड करें
-    async function loadModel() {
-      if (!detector) {
-        statusBox.style.display = 'block';
-        statusBox.innerText = "Loading AI Smart-Crop Model (First time only)...";
-        detector = await pipeline('object-detection', 'Xenova/detr-resnet-50');
-        statusBox.style.display = 'none';
+    // पिक्सेल एनालिसिस द्वारा फ़ालतू बैकग्राउंड/बॉर्डर को क्रॉप करने का फंक्शन
+    function autoCropImage(img) {
+      const tempCanvas = document.createElement('canvas');
+      const tempCtx = tempCanvas.getContext('2d');
+      const w = img.width;
+      const h = img.height;
+      
+      tempCanvas.width = w;
+      tempCanvas.height = h;
+      tempCtx.drawImage(img, 0, 0);
+
+      const imgData = tempCtx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+
+      // बॉर्डर का रंग पहचानना (Top-Left Pixel)
+      const bgR = data[0], bgG = data[1], bgB = data[2];
+
+      function isBg(x, y) {
+        const idx = (y * w + x) * 4;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+        return Math.abs(r - bgR) < 30 && Math.abs(g - bgG) < 30 && Math.abs(b - bgB) < 30;
       }
-    }
 
-    // AI द्वारा मुख्य फ़ोटो एरिया डिटेक्ट करके क्रॉप करना
-    async function aiCrop(imgElement) {
-      try {
-        const results = await detector(imgElement.src, { threshold: 0.25 });
-        
-        if (results && results.length > 0) {
-          // सबसे बड़े ऑब्जेक्ट को चुनें (जैसे पूरा घर/रूम)
-          let mainObj = results[0];
-          let maxArea = 0;
-          results.forEach(res => {
-            const area = (res.box.xmax - res.box.xmin) * (res.box.ymax - res.box.ymin);
-            if (area > maxArea) {
-              maxArea = area;
-              mainObj = res;
-            }
-          });
+      let top = 0, bottom = h, left = 0, right = w;
 
-          const { xmin, ymin, xmax, ymax } = mainObj.box;
-          const cropX = Math.max(0, xmin);
-          const cropY = Math.max(0, ymin);
-          const cropW = Math.min(imgElement.naturalWidth - cropX, xmax - xmin);
-          const cropH = Math.min(imgElement.naturalHeight - cropY, ymax - ymin);
-
-          const canvas = document.createElement('canvas');
-          canvas.width = cropW;
-          canvas.height = cropH;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(imgElement, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-          return canvas;
+      // Top Scan
+      for (let y = 0; y < h * 0.45; y++) {
+        let isRowBg = true;
+        for (let x = 0; x < w; x += 10) {
+          if (!isBg(x, y)) { isRowBg = false; break; }
         }
-      } catch (err) {
-        console.warn("AI Crop fallback triggered", err);
+        if (!isRowBg) { top = y; break; }
       }
 
-      // अगर AI किसी कारण डिटेक्ट न कर पाए, तो 15% टॉप/बॉटम डिफॉल्ट क्रॉप करें
-      const canvas = document.createElement('canvas');
-      const origW = imgElement.naturalWidth;
-      const origH = imgElement.naturalHeight;
-      const topPx = Math.floor(0.15 * origH);
-      const targetH = Math.floor(0.70 * origH);
+      // Bottom Scan
+      for (let y = h - 1; y > h * 0.55; y--) {
+        let isRowBg = true;
+        for (let x = 0; x < w; x += 10) {
+          if (!isBg(x, y)) { isRowBg = false; break; }
+        }
+        if (!isRowBg) { bottom = y + 1; break; }
+      }
 
-      canvas.width = origW;
-      canvas.height = targetH;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(imgElement, 0, topPx, origW, targetH, 0, 0, origW, targetH);
-      return canvas;
+      // Left Scan
+      for (let x = 0; x < w * 0.45; x++) {
+        let isColBg = true;
+        for (let y = top; y < bottom; y += 10) {
+          if (!isBg(x, y)) { isColBg = false; break; }
+        }
+        if (!isColBg) { left = x; break; }
+      }
+
+      // Right Scan
+      for (let x = w - 1; x > w * 0.55; x--) {
+        let isColBg = true;
+        for (let y = top; y < bottom; y += 10) {
+          if (!isBg(x, y)) { isColBg = false; break; }
+        }
+        if (!isColBg) { right = x + 1; break; }
+      }
+
+      const cropW = Math.max(10, right - left);
+      const cropH = Math.max(10, bottom - top);
+
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = cropW;
+      croppedCanvas.height = cropH;
+      const croppedCtx = croppedCanvas.getContext('2d');
+      croppedCtx.drawImage(tempCanvas, left, top, cropW, cropH, 0, 0, cropW, cropH);
+
+      return croppedCanvas;
     }
 
-    imageInput.addEventListener('change', async (e) => {
+    imageInput.addEventListener('change', (e) => {
       gallery.innerHTML = '';
       processedCanvases = [];
       wmPositions = [];
@@ -208,28 +206,20 @@
       const files = Array.from(e.target.files);
       if (files.length === 0) return;
 
-      statusBox.style.display = 'block';
-      statusBox.innerText = "AI is detecting & cropping main photo content...";
-
-      await loadModel();
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const img = new Image();
-        img.src = URL.createObjectURL(file);
-
-        await new Promise((resolve) => {
-          img.onload = async () => {
-            const croppedCanvas = await aiCrop(img);
-            processedCanvases[i] = croppedCanvas;
-            wmPositions[i] = { x: 0.5, y: 0.5 };
-            renderPreview(i);
-            resolve();
+      files.forEach((file, index) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            const cropped = autoCropImage(img);
+            processedCanvases[index] = cropped;
+            wmPositions[index] = { x: 0.5, y: 0.5 };
+            renderPreview(index);
           };
-        });
-      }
-
-      statusBox.style.display = 'none';
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
     });
 
     function renderPreview(index) {
@@ -357,4 +347,3 @@
   </script>
 </body>
 </html>
-
