@@ -1,46 +1,265 @@
 <!DOCTYPE html>
 <html lang="hi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsApp Direct Link Generator</title>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; max-width: 400px; margin: auto; }
-        label { font-weight: bold; display: block; margin-top: 10px; }
-        input, textarea, button { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; }
-        button { background-color: #25D366; color: white; border: none; cursor: pointer; font-size: 16px; font-weight: bold; border-radius: 5px; margin-top: 15px; }
-        button:hover { background-color: #1EBE57; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fast Batch Watermark Tool</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 20px;
+      background-color: #f0f2f5;
+      max-width: 900px;
+      margin: 0 auto;
+      color: #333;
+    }
+    h2 { text-align: center; margin-bottom: 20px; }
+    .controls {
+      background: #ffffff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      margin-bottom: 25px;
+    }
+    .control-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
+    input[type="text"], input[type="file"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    input[type="range"] { width: 100%; cursor: pointer; }
+    .btn-group { display: flex; gap: 10px; margin-top: 15px; }
+    .btn {
+      flex: 1;
+      background-color: #0066fe;
+      color: white;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 15px;
+      transition: background 0.2s;
+    }
+    .btn:hover { background-color: #0052cc; }
+    .btn-download { background-color: #10b981; }
+    .btn-download:hover { background-color: #059669; }
+    
+    #gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 15px;
+    }
+    .preview-container {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #e5e7eb;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      touch-action: none;
+    }
+    canvas { display: block; width: 100%; height: auto; }
+    .watermark-overlay {
+      position: absolute;
+      color: white;
+      text-shadow: 0px 0px 4px rgba(0,0,0,0.8);
+      cursor: move;
+      user-select: none;
+      white-space: nowrap;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      will-change: transform, left, top;
+    }
+  </style>
 </head>
 <body>
 
-    <h2>WhatsApp Link Launcher</h2>
+  <h2>सुपर-फास्ट बैच वॉटरमार्क टूल</h2>
 
-    <label for="phone">Phone Number (Country code ke saath, bina + ke):</label>
-    <input type="text" id="phone" placeholder="Jaise: 919876543210">
+  <div class="controls">
+    <div class="control-group">
+      <label>1. फ़ोटो अपलोड करें:</label>
+      <input type="file" id="imageInput" multiple accept="image/*">
+    </div>
 
-    <label for="message">Message:</label>
-    <textarea id="message" rows="4" placeholder="Apna message yahan likhein..."></textarea>
+    <div class="control-group">
+      <label>2. वॉटरमार्क टेक्स्ट:</label>
+      <input type="text" id="wmText" value="My Watermark" placeholder="यहाँ टेक्स्ट लिखें...">
+    </div>
 
-    <button onclick="sendWhatsApp()">WhatsApp Par Bhejein</button>
+    <div class="control-group">
+      <label>3. साइज़ (Size):</label>
+      <input type="range" id="wmSize" min="10" max="100" value="30">
+    </div>
 
-    <script>
-        function sendWhatsApp() {
-            let phone = document.getElementById("phone").value.trim();
-            let message = encodeURIComponent(document.getElementById("message").value.trim());
+    <div class="control-group">
+      <label>4. विजिबिलिटी (Opacity):</label>
+      <input type="range" id="wmOpacity" min="0.1" max="1" step="0.05" value="0.7">
+    </div>
 
-            if (!phone) {
-                alert("Kripya phone number darj karein.");
-                return;
+    <div class="btn-group">
+      <button class="btn" id="applyBtn">अप्लाई करें</button>
+      <button class="btn btn-download" id="downloadBtn">सभी तेज़ी से डाउनलोड करें</button>
+    </div>
+  </div>
+
+  <div id="gallery"></div>
+
+  <script>
+    const imageInput = document.getElementById('imageInput');
+    const wmText = document.getElementById('wmText');
+    const wmSize = document.getElementById('wmSize');
+    const wmOpacity = document.getElementById('wmOpacity');
+    const applyBtn = document.getElementById('applyBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const gallery = document.getElementById('gallery');
+
+    let loadedImages = [];
+    let wmPositions = [];
+
+    // तेज़ इमेज प्रोसेसिंग के लिए FileReader का ऑप्टिमाइज्ड यूज़
+    imageInput.addEventListener('change', async (e) => {
+      gallery.innerHTML = '';
+      loadedImages = [];
+      wmPositions = [];
+
+      const files = Array.from(e.target.files);
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const bitmap = await createImageBitmap(file); // बहुत तेज़ी से इमेज लोड करता है
+        loadedImages[i] = bitmap;
+        wmPositions[i] = { x: 0.5, y: 0.5 };
+        renderPreview(i);
+      }
+    });
+
+    function renderPreview(index) {
+      let wrapper = document.getElementById(`wrapper-${index}`);
+      if (!wrapper) {
+        wrapper = document.createElement('div');
+        wrapper.className = 'preview-container';
+        wrapper.id = `wrapper-${index}`;
+        gallery.appendChild(wrapper);
+      } else {
+        wrapper.innerHTML = '';
+      }
+
+      const img = loadedImages[index];
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { alpha: false }); // फास्ट कैनवास रेंडरिंग
+      
+      const maxDisplayWidth = 350;
+      const scale = Math.min(1, maxDisplayWidth / img.width);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      wrapper.appendChild(canvas);
+
+      const overlay = document.createElement('div');
+      overlay.className = 'watermark-overlay';
+      overlay.innerText = wmText.value;
+      overlay.style.fontSize = `${wmSize.value * scale}px`;
+      overlay.style.opacity = wmOpacity.value;
+      
+      overlay.style.left = `${wmPositions[index].x * 100}%`;
+      overlay.style.top = `${wmPositions[index].y * 100}%`;
+
+      wrapper.appendChild(overlay);
+
+      // स्मूथ ड्रैग लॉजिक
+      let isDragging = false;
+
+      const onMove = (e) => {
+        if (!isDragging) return;
+        const rect = wrapper.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        let x = (clientX - rect.left) / rect.width;
+        let y = (clientY - rect.top) / rect.height;
+
+        x = Math.max(0, Math.min(1, x));
+        y = Math.max(0, Math.min(1, y));
+
+        wmPositions[index] = { x, y };
+        overlay.style.left = `${x * 100}%`;
+        overlay.style.top = `${y * 100}%`;
+      };
+
+      const startDrag = () => { isDragging = true; };
+      const stopDrag = () => { isDragging = false; };
+
+      overlay.addEventListener('mousedown', startDrag);
+      overlay.addEventListener('touchstart', startDrag, { passive: true });
+
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('touchmove', onMove, { passive: true });
+
+      window.addEventListener('mouseup', stopDrag);
+      window.addEventListener('touchend', stopDrag);
+    }
+
+    function updateAllPreviews() {
+      requestAnimationFrame(() => {
+        loadedImages.forEach((_, index) => {
+          const wrapper = document.getElementById(`wrapper-${index}`);
+          if (wrapper) {
+            const overlay = wrapper.querySelector('.watermark-overlay');
+            if (overlay) {
+              overlay.innerText = wmText.value;
+              const img = loadedImages[index];
+              const scale = Math.min(1, 350 / img.width);
+              overlay.style.fontSize = `${wmSize.value * scale}px`;
+              overlay.style.opacity = wmOpacity.value;
             }
+          }
+        });
+      });
+    }
 
-            // WhatsApp Web / App link URL
-            let url = `https://wa.me/${phone}?text=${message}`;
-            
-            // New tab mein WhatsApp open hoga
-            window.open(url, '_blank');
-        }
-    </script>
+    wmText.addEventListener('input', updateAllPreviews);
+    wmSize.addEventListener('input', updateAllPreviews);
+    wmOpacity.addEventListener('input', updateAllPreviews);
+    applyBtn.addEventListener('click', updateAllPreviews);
 
+    // फास्ट पैरेलल डाउनलोड्स
+    downloadBtn.addEventListener('click', () => {
+      if (loadedImages.length === 0) return alert('फ़ोटो अपलोड करें!');
+
+      loadedImages.forEach((img, index) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        ctx.drawImage(img, 0, 0);
+
+        const pos = wmPositions[index];
+        const fontSize = parseInt(wmSize.value, 10) * (img.width / 350);
+        
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.fillStyle = `rgba(255, 255, 255, ${wmOpacity.value})`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowBlur = fontSize * 0.1;
+
+        ctx.fillText(wmText.value, pos.x * canvas.width, pos.y * canvas.height);
+
+        const link = document.createElement('a');
+        link.download = `watermarked_${index + 1}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      });
+    });
+  </script>
 </body>
 </html>
