@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Full 4-Side Free Crop & Watermark Tool</title>
+  <title>Crop, Watermark & Direct Cloudinary Upload</title>
   
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
   
@@ -46,8 +46,8 @@
       font-weight: bold;
       font-size: 15px;
     }
-    .btn-download { background-color: #10b981; }
-    .btn-download:hover { background-color: #059669; }
+    .btn-upload { background-color: #10b981; }
+    .btn-upload:hover { background-color: #059669; }
     
     #gallery {
       display: flex;
@@ -115,11 +115,49 @@
       transform: translate(-50%, -50%);
       touch-action: none;
     }
+
+    /* URL List Container */
+    .url-results-box {
+      margin-top: 20px;
+      background: #fff;
+      padding: 15px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      display: none;
+    }
+    .url-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .url-input {
+      flex: 1;
+      font-size: 13px;
+      background: #f8fafc;
+    }
+    .copy-btn {
+      background: #6366f1;
+      color: white;
+      border: none;
+      padding: 10px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 12px;
+    }
+    .copy-btn:hover { background: #4f46e5; }
+    .status-text {
+      text-align: center;
+      font-weight: bold;
+      color: #0066fe;
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
 
-  <h2>4-Side Crop & Watermark Tool</h2>
+  <h2>Crop, Watermark & Upload Tool</h2>
 
   <div class="controls">
     <div class="control-group">
@@ -143,31 +181,48 @@
     </div>
 
     <div class="btn-group">
-      <button class="btn btn-download" id="downloadBtn">Download All Watermarked</button>
+      <button class="btn btn-upload" id="uploadBtn">Get URLs (Upload to Cloudinary)</button>
     </div>
+    <div id="statusText" class="status-text"></div>
+  </div>
+
+  <div id="urlResults" class="url-results-box">
+    <label>Uploaded Image URLs:</label>
+    <div id="urlList"></div>
   </div>
 
   <div id="gallery"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 
   <script>
+    // Cloudinary Credentials Configured Directly
+    const CLOUD_NAME = "uq8eywxb";
+    const API_KEY = "11866433395381";
+    const API_SECRET = "JUVeYTckPyu6LknKqYQ6PEuNoM0";
+
     const imageInput = document.getElementById('imageInput');
     const wmText = document.getElementById('wmText');
     const wmSize = document.getElementById('wmSize');
     const wmOpacity = document.getElementById('wmOpacity');
-    const downloadBtn = document.getElementById('downloadBtn');
+    const uploadBtn = document.getElementById('uploadBtn');
     const gallery = document.getElementById('gallery');
+    const urlResults = document.getElementById('urlResults');
+    const urlList = document.getElementById('urlList');
+    const statusText = document.getElementById('statusText');
 
     let cropperInstances = [];
     let wmPositions = [];
 
     imageInput.addEventListener('change', (e) => {
-      // Destroy old cropper instances
       cropperInstances.forEach(inst => inst.destroy());
       cropperInstances = [];
       wmPositions = [];
       gallery.innerHTML = '';
+      urlResults.style.display = 'none';
+      urlList.innerHTML = '';
+      statusText.innerText = '';
 
       const files = Array.from(e.target.files);
       if (files.length === 0) return;
@@ -187,7 +242,7 @@
       card.className = 'editor-card';
 
       card.innerHTML = `
-        <div class="card-title">1. Crop 4 Sides with Handles</div>
+        <div class="card-title">1. Crop 4 Sides</div>
         <div class="crop-container">
           <img id="crop-img-${index}" src="${imgSrc}">
         </div>
@@ -200,21 +255,16 @@
 
       const imageEl = document.getElementById(`crop-img-${index}`);
       
-      // Initialize Cropper JS with 4-side free cropping
       const cropper = new Cropper(imageEl, {
         viewMode: 1,
-        autoCropArea: 0.6,
+        autoCropArea: 0.8,
         background: false,
         zoomable: false,
         movable: false,
         rotatable: false,
         scalable: false,
-        cropend() {
-          renderPreview(index);
-        },
-        ready() {
-          renderPreview(index);
-        }
+        cropend() { renderPreview(index); },
+        ready() { renderPreview(index); }
       });
 
       cropperInstances[index] = cropper;
@@ -242,7 +292,6 @@
       ctx.drawImage(croppedCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
       wrapper.appendChild(previewCanvas);
 
-      // Add draggable watermark overlay
       const overlay = document.createElement('div');
       overlay.className = 'watermark-overlay';
       overlay.innerText = wmText.value;
@@ -291,9 +340,7 @@
 
     function updateWatermarkPreviews() {
       requestAnimationFrame(() => {
-        cropperInstances.forEach((_, index) => {
-          renderPreview(index);
-        });
+        cropperInstances.forEach((_, index) => renderPreview(index));
       });
     }
 
@@ -301,12 +348,11 @@
     wmSize.addEventListener('input', updateWatermarkPreviews);
     wmOpacity.addEventListener('input', updateWatermarkPreviews);
 
-    downloadBtn.addEventListener('click', () => {
-      if (cropperInstances.length === 0) return alert('Please select photos first!');
-
-      cropperInstances.forEach((cropper, index) => {
+    function getFinalImageBlob(index) {
+      return new Promise((resolve) => {
+        const cropper = cropperInstances[index];
         const srcCanvas = cropper.getCroppedCanvas();
-        if (!srcCanvas) return;
+        if (!srcCanvas) return resolve(null);
 
         const outCanvas = document.createElement('canvas');
         const ctx = outCanvas.getContext('2d');
@@ -323,18 +369,83 @@
         ctx.fillStyle = `rgba(255, 255, 255, ${wmOpacity.value})`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-
         ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
         ctx.shadowBlur = fontSize * 0.1;
 
         ctx.fillText(wmText.value, pos.x * outCanvas.width, pos.y * outCanvas.height);
 
-        const link = document.createElement('a');
-        link.download = `watermarked_${index + 1}.png`;
-        link.href = outCanvas.toDataURL('image/png');
-        link.click();
+        outCanvas.toBlob((blob) => resolve(blob), 'image/png');
       });
+    }
+
+    // Direct Cloudinary Signed Upload
+    uploadBtn.addEventListener('click', async () => {
+      if (cropperInstances.length === 0) return alert('Please select photos first!');
+
+      urlList.innerHTML = '';
+      urlResults.style.display = 'block';
+      statusText.innerText = 'Uploading images to Cloudinary... Please wait.';
+
+      for (let index = 0; index < cropperInstances.length; index++) {
+        const blob = await getFinalImageBlob(index);
+        if (!blob) continue;
+
+        const timestamp = Math.round(new Date().getTime() / 1000);
+        const strToSign = `timestamp=${timestamp}${API_SECRET}`;
+        const signature = CryptoJS.SHA256(strToSign).toString();
+
+        const formData = new FormData();
+        formData.append('file', blob);
+        formData.append('api_key', API_KEY);
+        formData.append('timestamp', timestamp);
+        formData.append('signature', signature);
+
+        try {
+          const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
+            method: 'POST',
+            body: formData
+          });
+
+          const data = await res.json();
+
+          if (data.secure_url) {
+            addUrlRow(data.secure_url);
+          } else {
+            alert(`Upload failed: ${data.error ? data.error.message : 'Unknown Error'}`);
+          }
+        } catch (err) {
+          console.error(err);
+          alert(`Error uploading image ${index + 1}`);
+        }
+      }
+
+      statusText.innerText = 'All images uploaded successfully!';
     });
+
+    function addUrlRow(url) {
+      const row = document.createElement('div');
+      row.className = 'url-row';
+      row.innerHTML = `
+        <input type="text" class="url-input" value="${url}" readonly>
+        <button class="copy-btn">Copy URL</button>
+      `;
+
+      const copyBtn = row.querySelector('.copy-btn');
+      const input = row.querySelector('.url-input');
+
+      copyBtn.addEventListener('click', () => {
+        input.select();
+        navigator.clipboard.writeText(url);
+        copyBtn.innerText = 'Copied!';
+        copyBtn.style.background = '#10b981';
+        setTimeout(() => {
+          copyBtn.innerText = 'Copy URL';
+          copyBtn.style.background = '#6366f1';
+        }, 2000);
+      });
+
+      urlList.appendChild(row);
+    }
   </script>
 </body>
 </html>
