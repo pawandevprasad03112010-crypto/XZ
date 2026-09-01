@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Batch Watermark & Auto-Crop Tool</title>
+  <title>Precision Crop & Batch Watermark Tool</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -52,8 +52,32 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 20px;
+      gap: 25px;
     }
+    
+    .item-card {
+      background: #fff;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 320px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .crop-slider-box {
+      width: 100%;
+      background: #f8fafc;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      border: 1px solid #e2e8f0;
+    }
+
+    .crop-slider-box label { font-size: 12px; font-weight: normal; }
+
     .preview-container {
       position: relative;
       width: 100%;
@@ -61,7 +85,6 @@
       border-radius: 8px;
       overflow: hidden;
       background: #e5e7eb;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
       touch-action: pan-y;
     }
     canvas { display: block; width: 100%; height: auto; pointer-events: none; }
@@ -82,7 +105,7 @@
 </head>
 <body>
 
-  <h2>Auto-Crop & Watermark Tool</h2>
+  <h2>Crop Extra Background & Watermark</h2>
 
   <div class="controls">
     <div class="control-group">
@@ -122,85 +145,14 @@
     const downloadBtn = document.getElementById('downloadBtn');
     const gallery = document.getElementById('gallery');
 
-    let processedCanvases = [];
+    let loadedImages = [];
+    let cropSettings = [];
     let wmPositions = [];
-
-    // पिक्सेल एनालिसिस द्वारा फ़ालतू बैकग्राउंड/बॉर्डर को क्रॉप करने का फंक्शन
-    function autoCropImage(img) {
-      const tempCanvas = document.createElement('canvas');
-      const tempCtx = tempCanvas.getContext('2d');
-      const w = img.width;
-      const h = img.height;
-      
-      tempCanvas.width = w;
-      tempCanvas.height = h;
-      tempCtx.drawImage(img, 0, 0);
-
-      const imgData = tempCtx.getImageData(0, 0, w, h);
-      const data = imgData.data;
-
-      // बॉर्डर का रंग पहचानना (Top-Left Pixel)
-      const bgR = data[0], bgG = data[1], bgB = data[2];
-
-      function isBg(x, y) {
-        const idx = (y * w + x) * 4;
-        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-        return Math.abs(r - bgR) < 30 && Math.abs(g - bgG) < 30 && Math.abs(b - bgB) < 30;
-      }
-
-      let top = 0, bottom = h, left = 0, right = w;
-
-      // Top Scan
-      for (let y = 0; y < h * 0.45; y++) {
-        let isRowBg = true;
-        for (let x = 0; x < w; x += 10) {
-          if (!isBg(x, y)) { isRowBg = false; break; }
-        }
-        if (!isRowBg) { top = y; break; }
-      }
-
-      // Bottom Scan
-      for (let y = h - 1; y > h * 0.55; y--) {
-        let isRowBg = true;
-        for (let x = 0; x < w; x += 10) {
-          if (!isBg(x, y)) { isRowBg = false; break; }
-        }
-        if (!isRowBg) { bottom = y + 1; break; }
-      }
-
-      // Left Scan
-      for (let x = 0; x < w * 0.45; x++) {
-        let isColBg = true;
-        for (let y = top; y < bottom; y += 10) {
-          if (!isBg(x, y)) { isColBg = false; break; }
-        }
-        if (!isColBg) { left = x; break; }
-      }
-
-      // Right Scan
-      for (let x = w - 1; x > w * 0.55; x--) {
-        let isColBg = true;
-        for (let y = top; y < bottom; y += 10) {
-          if (!isBg(x, y)) { isColBg = false; break; }
-        }
-        if (!isColBg) { right = x + 1; break; }
-      }
-
-      const cropW = Math.max(10, right - left);
-      const cropH = Math.max(10, bottom - top);
-
-      const croppedCanvas = document.createElement('canvas');
-      croppedCanvas.width = cropW;
-      croppedCanvas.height = cropH;
-      const croppedCtx = croppedCanvas.getContext('2d');
-      croppedCtx.drawImage(tempCanvas, left, top, cropW, cropH, 0, 0, cropW, cropH);
-
-      return croppedCanvas;
-    }
 
     imageInput.addEventListener('change', (e) => {
       gallery.innerHTML = '';
-      processedCanvases = [];
+      loadedImages = [];
+      cropSettings = [];
       wmPositions = [];
 
       const files = Array.from(e.target.files);
@@ -211,10 +163,11 @@
         reader.onload = (event) => {
           const img = new Image();
           img.onload = () => {
-            const cropped = autoCropImage(img);
-            processedCanvases[index] = cropped;
+            loadedImages[index] = img;
+            // Default cut (Top/Bottom/Left/Right 0%)
+            cropSettings[index] = { top: 25, bottom: 25, left: 0, right: 0 };
             wmPositions[index] = { x: 0.5, y: 0.5 };
-            renderPreview(index);
+            createImageCard(index);
           };
           img.src = event.target.result;
         };
@@ -222,18 +175,66 @@
       });
     });
 
-    function renderPreview(index) {
-      let wrapper = document.getElementById(`wrapper-${index}`);
-      if (!wrapper) {
-        wrapper = document.createElement('div');
-        wrapper.className = 'preview-container';
-        wrapper.id = `wrapper-${index}`;
-        gallery.appendChild(wrapper);
-      } else {
-        wrapper.innerHTML = '';
-      }
+    function createImageCard(index) {
+      const card = document.createElement('div');
+      card.className = 'item-card';
+      card.id = `card-${index}`;
 
-      const srcCanvas = processedCanvases[index];
+      card.innerHTML = `
+        <div class="crop-slider-box">
+          <label><b>Cut Top/Bottom Background:</b></label>
+          <input type="range" class="crop-tb" data-index="${index}" min="0" max="40" value="${cropSettings[index].top}">
+          <label><b>Cut Left/Right Background:</b></label>
+          <input type="range" class="crop-lr" data-index="${index}" min="0" max="30" value="${cropSettings[index].left}">
+        </div>
+        <div class="preview-container" id="wrapper-${index}"></div>
+      `;
+
+      gallery.appendChild(card);
+
+      const cropTb = card.querySelector('.crop-tb');
+      const cropLr = card.querySelector('.crop-lr');
+
+      cropTb.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10);
+        cropSettings[index].top = val;
+        cropSettings[index].bottom = val;
+        renderPreview(index);
+      });
+
+      cropLr.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10);
+        cropSettings[index].left = val;
+        cropSettings[index].right = val;
+        renderPreview(index);
+      });
+
+      renderPreview(index);
+    }
+
+    function getCroppedCanvas(index) {
+      const img = loadedImages[index];
+      const crop = cropSettings[index];
+
+      const cropX = Math.floor((crop.left / 100) * img.width);
+      const cropY = Math.floor((crop.top / 100) * img.height);
+      const cropW = Math.max(1, img.width - cropX - Math.floor((crop.right / 100) * img.width));
+      const cropH = Math.max(1, img.height - cropY - Math.floor((crop.bottom / 100) * img.height));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = cropW;
+      canvas.height = cropH;
+      const ctx = canvas.getContext('2d');
+
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      return canvas;
+    }
+
+    function renderPreview(index) {
+      const wrapper = document.getElementById(`wrapper-${index}`);
+      wrapper.innerHTML = '';
+
+      const srcCanvas = getCroppedCanvas(index);
       const previewCanvas = document.createElement('canvas');
       const ctx = previewCanvas.getContext('2d');
       
@@ -293,17 +294,8 @@
 
     function updateOverlayStyles() {
       requestAnimationFrame(() => {
-        processedCanvases.forEach((srcCanvas, index) => {
-          const wrapper = document.getElementById(`wrapper-${index}`);
-          if (wrapper) {
-            const overlay = wrapper.querySelector('.watermark-overlay');
-            if (overlay) {
-              overlay.innerText = wmText.value;
-              const scale = Math.min(1, 260 / srcCanvas.width);
-              overlay.style.fontSize = `${wmSize.value * scale}px`;
-              overlay.style.opacity = wmOpacity.value;
-            }
-          }
+        loadedImages.forEach((_, index) => {
+          renderPreview(index);
         });
       });
     }
@@ -314,9 +306,10 @@
     applyBtn.addEventListener('click', updateOverlayStyles);
 
     downloadBtn.addEventListener('click', () => {
-      if (processedCanvases.length === 0) return alert('Please select photos first!');
+      if (loadedImages.length === 0) return alert('Please select photos first!');
 
-      processedCanvases.forEach((srcCanvas, index) => {
+      loadedImages.forEach((_, index) => {
+        const srcCanvas = getCroppedCanvas(index);
         const outCanvas = document.createElement('canvas');
         const ctx = outCanvas.getContext('2d');
 
