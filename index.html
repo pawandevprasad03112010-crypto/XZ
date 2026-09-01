@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fast Batch Watermark Tool</title>
+  <title>Smart Batch Watermark Tool</title>
   <style>
     * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 20px;
+      padding: 15px;
       background-color: #f0f2f5;
-      max-width: 900px;
+      max-width: 800px;
       margin: 0 auto;
       color: #333;
     }
@@ -31,6 +31,13 @@
       border-radius: 6px;
     }
     input[type="range"] { width: 100%; cursor: pointer; }
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    .checkbox-group input { width: 18px; height: 18px; cursor: pointer; }
     .btn-group { display: flex; gap: 10px; margin-top: 15px; }
     .btn {
       flex: 1;
@@ -49,19 +56,22 @@
     .btn-download:hover { background-color: #059669; }
     
     #gallery {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
     }
     .preview-container {
       position: relative;
+      width: 100%;
+      max-width: 260px;
       border-radius: 8px;
       overflow: hidden;
       background: #e5e7eb;
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-      touch-action: none;
+      touch-action: pan-y;
     }
-    canvas { display: block; width: 100%; height: auto; }
+    canvas { display: block; width: 100%; height: auto; pointer-events: none; }
     .watermark-overlay {
       position: absolute;
       color: white;
@@ -73,37 +83,43 @@
       left: 50%;
       transform: translate(-50%, -50%);
       will-change: transform, left, top;
+      touch-action: none;
     }
   </style>
 </head>
 <body>
 
-  <h2>सुपर-फास्ट बैच वॉटरमार्क टूल</h2>
+  <h2>Auto-Crop & Watermark Tool</h2>
 
   <div class="controls">
     <div class="control-group">
-      <label>1. फ़ोटो अपलोड करें:</label>
+      <label>1. Select Photos:</label>
       <input type="file" id="imageInput" multiple accept="image/*">
     </div>
 
-    <div class="control-group">
-      <label>2. वॉटरमार्क टेक्स्ट:</label>
-      <input type="text" id="wmText" value="My Watermark" placeholder="यहाँ टेक्स्ट लिखें...">
+    <div class="checkbox-group">
+      <input type="checkbox" id="autoCrop" checked>
+      <label for="autoCrop" style="margin:0; cursor:pointer;">Auto-Remove Black/White Borders</label>
     </div>
 
     <div class="control-group">
-      <label>3. साइज़ (Size):</label>
+      <label>2. Watermark Text:</label>
+      <input type="text" id="wmText" value="My Watermark" placeholder="Enter text here...">
+    </div>
+
+    <div class="control-group">
+      <label>3. Text Size:</label>
       <input type="range" id="wmSize" min="10" max="100" value="30">
     </div>
 
     <div class="control-group">
-      <label>4. विजिबिलिटी (Opacity):</label>
+      <label>4. Opacity:</label>
       <input type="range" id="wmOpacity" min="0.1" max="1" step="0.05" value="0.7">
     </div>
 
     <div class="btn-group">
-      <button class="btn" id="applyBtn">अप्लाई करें</button>
-      <button class="btn btn-download" id="downloadBtn">सभी तेज़ी से डाउनलोड करें</button>
+      <button class="btn" id="applyBtn">Apply</button>
+      <button class="btn btn-download" id="downloadBtn">Download All</button>
     </div>
   </div>
 
@@ -111,6 +127,7 @@
 
   <script>
     const imageInput = document.getElementById('imageInput');
+    const autoCrop = document.getElementById('autoCrop');
     const wmText = document.getElementById('wmText');
     const wmSize = document.getElementById('wmSize');
     const wmOpacity = document.getElementById('wmOpacity');
@@ -118,25 +135,109 @@
     const downloadBtn = document.getElementById('downloadBtn');
     const gallery = document.getElementById('gallery');
 
-    let loadedImages = [];
+    let processedCanvases = [];
     let wmPositions = [];
 
-    // तेज़ इमेज प्रोसेसिंग के लिए FileReader का ऑप्टिमाइज्ड यूज़
-    imageInput.addEventListener('change', async (e) => {
+    // ऑटोमेटिक बॉर्डर हटाने का फ़ंक्शन (Auto-Crop Logic)
+    function removeBorders(img) {
+      const tempCanvas = document.createElement('canvas');
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCanvas.width = img.width;
+      tempCanvas.height = img.height;
+      tempCtx.drawImage(img, 0, 0);
+
+      const imgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+      const data = imgData.data;
+      const w = tempCanvas.width;
+      const h = tempCanvas.height;
+
+      let top = 0, bottom = h, left = 0, right = w;
+
+      // बॉर्डर का रंग पता करने के लिए (Top-Left Pixel)
+      const bgR = data[0], bgG = data[1], bgB = data[2];
+
+      function isBgColor(idx) {
+        const r = data[idx], g = data[idx+1], b = data[idx+2];
+        return Math.abs(r - bgR) < 25 && Math.abs(g - bgG) < 25 && Math.abs(b - bgB) < 25;
+      }
+
+      // Top Bound
+      for (let y = 0; y < h; y++) {
+        let isRowBg = true;
+        for (let x = 0; x < w; x += 5) {
+          if (!isBgColor((y * w + x) * 4)) { isRowBg = false; break; }
+        }
+        if (!isRowBg) { top = y; break; }
+      }
+
+      // Bottom Bound
+      for (let y = h - 1; y >= top; y--) {
+        let isRowBg = true;
+        for (let x = 0; x < w; x += 5) {
+          if (!isBgColor((y * w + x) * 4)) { isRowBg = false; break; }
+        }
+        if (!isRowBg) { bottom = y + 1; break; }
+      }
+
+      // Left Bound
+      for (let x = 0; x < w; x++) {
+        let isColBg = true;
+        for (let y = top; y < bottom; y += 5) {
+          if (!isBgColor((y * w + x) * 4)) { isColBg = false; break; }
+        }
+        if (!isColBg) { left = x; break; }
+      }
+
+      // Right Bound
+      for (let x = w - 1; x >= left; x--) {
+        let isColBg = true;
+        for (let y = top; y < bottom; y += 5) {
+          if (!isBgColor((y * w + x) * 4)) { isColBg = false; break; }
+        }
+        if (!isColBg) { right = x + 1; break; }
+      }
+
+      const cropW = Math.max(1, right - left);
+      const cropH = Math.max(1, bottom - top);
+
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = cropW;
+      croppedCanvas.height = cropH;
+      const croppedCtx = croppedCanvas.getContext('2d');
+      croppedCtx.drawImage(tempCanvas, left, top, cropW, cropH, 0, 0, cropW, cropH);
+
+      return croppedCanvas;
+    }
+
+    async function processImages() {
       gallery.innerHTML = '';
-      loadedImages = [];
+      processedCanvases = [];
       wmPositions = [];
 
-      const files = Array.from(e.target.files);
-      
+      const files = Array.from(imageInput.files);
+
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const bitmap = await createImageBitmap(file); // बहुत तेज़ी से इमेज लोड करता है
-        loadedImages[i] = bitmap;
+        const bitmap = await createImageBitmap(file);
+
+        let finalCanvas;
+        if (autoCrop.checked) {
+          finalCanvas = removeBorders(bitmap);
+        } else {
+          finalCanvas = document.createElement('canvas');
+          finalCanvas.width = bitmap.width;
+          finalCanvas.height = bitmap.height;
+          finalCanvas.getContext('2d').drawImage(bitmap, 0, 0);
+        }
+
+        processedCanvases[i] = finalCanvas;
         wmPositions[i] = { x: 0.5, y: 0.5 };
         renderPreview(i);
       }
-    });
+    }
+
+    imageInput.addEventListener('change', processImages);
+    autoCrop.addEventListener('change', processImages);
 
     function renderPreview(index) {
       let wrapper = document.getElementById(`wrapper-${index}`);
@@ -149,17 +250,17 @@
         wrapper.innerHTML = '';
       }
 
-      const img = loadedImages[index];
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { alpha: false }); // फास्ट कैनवास रेंडरिंग
+      const srcCanvas = processedCanvases[index];
+      const previewCanvas = document.createElement('canvas');
+      const ctx = previewCanvas.getContext('2d');
       
-      const maxDisplayWidth = 350;
-      const scale = Math.min(1, maxDisplayWidth / img.width);
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
+      const maxDisplayWidth = 260;
+      const scale = Math.min(1, maxDisplayWidth / srcCanvas.width);
+      previewCanvas.width = srcCanvas.width * scale;
+      previewCanvas.height = srcCanvas.height * scale;
 
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      wrapper.appendChild(canvas);
+      ctx.drawImage(srcCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
+      wrapper.appendChild(previewCanvas);
 
       const overlay = document.createElement('div');
       overlay.className = 'watermark-overlay';
@@ -172,7 +273,6 @@
 
       wrapper.appendChild(overlay);
 
-      // स्मूथ ड्रैग लॉजिक
       let isDragging = false;
 
       const onMove = (e) => {
@@ -192,7 +292,10 @@
         overlay.style.top = `${y * 100}%`;
       };
 
-      const startDrag = () => { isDragging = true; };
+      const startDrag = (e) => { 
+        isDragging = true; 
+        e.stopPropagation();
+      };
       const stopDrag = () => { isDragging = false; };
 
       overlay.addEventListener('mousedown', startDrag);
@@ -207,14 +310,13 @@
 
     function updateAllPreviews() {
       requestAnimationFrame(() => {
-        loadedImages.forEach((_, index) => {
+        processedCanvases.forEach((srcCanvas, index) => {
           const wrapper = document.getElementById(`wrapper-${index}`);
           if (wrapper) {
             const overlay = wrapper.querySelector('.watermark-overlay');
             if (overlay) {
               overlay.innerText = wmText.value;
-              const img = loadedImages[index];
-              const scale = Math.min(1, 350 / img.width);
+              const scale = Math.min(1, 260 / srcCanvas.width);
               overlay.style.fontSize = `${wmSize.value * scale}px`;
               overlay.style.opacity = wmOpacity.value;
             }
@@ -228,21 +330,20 @@
     wmOpacity.addEventListener('input', updateAllPreviews);
     applyBtn.addEventListener('click', updateAllPreviews);
 
-    // फास्ट पैरेलल डाउनलोड्स
     downloadBtn.addEventListener('click', () => {
-      if (loadedImages.length === 0) return alert('फ़ोटो अपलोड करें!');
+      if (processedCanvases.length === 0) return alert('Please select photos first!');
 
-      loadedImages.forEach((img, index) => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+      processedCanvases.forEach((srcCanvas, index) => {
+        const outCanvas = document.createElement('canvas');
+        const ctx = outCanvas.getContext('2d');
 
-        canvas.width = img.width;
-        canvas.height = img.height;
+        outCanvas.width = srcCanvas.width;
+        outCanvas.height = srcCanvas.height;
 
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(srcCanvas, 0, 0);
 
         const pos = wmPositions[index];
-        const fontSize = parseInt(wmSize.value, 10) * (img.width / 350);
+        const fontSize = parseInt(wmSize.value, 10) * (srcCanvas.width / 260);
         
         ctx.font = `bold ${fontSize}px sans-serif`;
         ctx.fillStyle = `rgba(255, 255, 255, ${wmOpacity.value})`;
@@ -252,11 +353,11 @@
         ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
         ctx.shadowBlur = fontSize * 0.1;
 
-        ctx.fillText(wmText.value, pos.x * canvas.width, pos.y * canvas.height);
+        ctx.fillText(wmText.value, pos.x * outCanvas.width, pos.y * outCanvas.height);
 
         const link = document.createElement('a');
         link.download = `watermarked_${index + 1}.png`;
-        link.href = canvas.toDataURL('image/png');
+        link.href = outCanvas.toDataURL('image/png');
         link.click();
       });
     });
